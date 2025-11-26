@@ -98,6 +98,85 @@
         .layer-control button.active:hover {
             background: #0056b3;
         }
+        .checkbox-panel {
+            background: white;
+            padding: 6px;
+            border-radius: 5px;
+            box-shadow: 0 1px 5px rgba(0,0,0,0.4);
+            max-height: 400px;
+            overflow-y: auto;
+            max-width: 240px;
+        }
+        #checkbox-sections {
+            max-height: 320px;
+            overflow-y: auto;
+        }
+        .checkbox-panel h4 {
+            margin: 0 0 4px 0;
+            font-size: 11px;
+            font-weight: 600;
+        }
+        .checkbox-section {
+            margin-bottom: 6px;
+            border-bottom: 1px solid #e0e0e0;
+            padding-bottom: 4px;
+        }
+        .checkbox-section:last-child {
+            border-bottom: none;
+        }
+        .checkbox-section-title {
+            font-size: 9px;
+            font-weight: 600;
+            color: #666;
+            margin-bottom: 2px;
+            text-transform: uppercase;
+        }
+        .checkbox-item {
+            display: flex;
+            align-items: center;
+            margin: 1px 0;
+            font-size: 10px;
+        }
+        .checkbox-item input[type="checkbox"] {
+            margin-right: 4px;
+            cursor: pointer;
+            width: 12px;
+            height: 12px;
+        }
+        .checkbox-item label {
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            flex-grow: 1;
+        }
+        .checkbox-color {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 4px;
+            border: 1px solid #999;
+            flex-shrink: 0;
+        }
+        .checkbox-panel-controls {
+            display: flex;
+            gap: 4px;
+            margin-top: 4px;
+            padding-top: 4px;
+            border-top: 1px solid #e0e0e0;
+        }
+        .checkbox-panel-controls button {
+            width: 100%;
+            padding: 3px 4px;
+            font-size: 9px;
+            border: 1px solid #ccc;
+            background: #f8f9fa;
+            cursor: pointer;
+            border-radius: 3px;
+        }
+        .checkbox-panel-controls button:hover {
+            background: #e9ecef;
+        }
     </style>
 </head>
 <body>
@@ -129,26 +208,68 @@
         var currentLayer = 'payment_type';
         var currentMarkers = L.layerGroup().addTo(map);
 
-        // Function to update map with current layer
+        // State for checkbox selections
+        var checkedValues = {};
+
+        // Function to update map with current layer or checked values
         function updateMap() {
             currentMarkers.clearLayers();
 
-            var markers = layersData[currentLayer];
-            markers.forEach(function(marker) {
-                var coords = countryCoords[marker.country];
-                if (coords) {
-                    var circle = L.circleMarker([coords[0], coords[1]], {
-                        radius: 6 + (marker.system_count > 1 ? 2 : 0),
-                        fillColor: marker.color,
-                        color: '#000',
-                        weight: 1,
-                        opacity: 1,
-                        fillOpacity: 0.8
-                    });
-                    circle.bindPopup(marker.popup);
-                    currentMarkers.addLayer(circle);
-                }
+            // Check if any values are checked
+            var hasCheckedValues = Object.keys(checkedValues).some(function(key) {
+                return Object.keys(checkedValues[key]).length > 0;
             });
+
+            if (hasCheckedValues) {
+                // Show markers for all checked values across all layers
+                var displayedCountries = {}; // Track countries to avoid duplicates
+
+                Object.keys(checkedValues).forEach(function(layerType) {
+                    Object.keys(checkedValues[layerType]).forEach(function(value) {
+                        if (checkedValues[layerType][value]) {
+                            var markers = layersData[layerType];
+                            markers.forEach(function(marker) {
+                                // Only add if this country hasn't been added yet or has multiple systems
+                                var countryKey = marker.country + '-' + layerType + '-' + marker.value;
+                                if (marker.value === value && !displayedCountries[countryKey]) {
+                                    displayedCountries[countryKey] = true;
+                                    var coords = countryCoords[marker.country];
+                                    if (coords) {
+                                        var circle = L.circleMarker([coords[0], coords[1]], {
+                                            radius: 6 + (marker.system_count > 1 ? 2 : 0),
+                                            fillColor: marker.color,
+                                            color: '#000',
+                                            weight: 1,
+                                            opacity: 1,
+                                            fillOpacity: 0.8
+                                        });
+                                        circle.bindPopup(marker.popup);
+                                        currentMarkers.addLayer(circle);
+                                    }
+                                }
+                            });
+                        }
+                    });
+                });
+            } else {
+                // Fall back to showing current layer
+                var markers = layersData[currentLayer];
+                markers.forEach(function(marker) {
+                    var coords = countryCoords[marker.country];
+                    if (coords) {
+                        var circle = L.circleMarker([coords[0], coords[1]], {
+                            radius: 6 + (marker.system_count > 1 ? 2 : 0),
+                            fillColor: marker.color,
+                            color: '#000',
+                            weight: 1,
+                            opacity: 1,
+                            fillOpacity: 0.8
+                        });
+                        circle.bindPopup(marker.popup);
+                        currentMarkers.addLayer(circle);
+                    }
+                });
+            }
 
             updateLegend();
         }
@@ -167,10 +288,105 @@
                 '<button id="btn-settlement_type">Settlement Type</button>' +
                 '<button id="btn-national_regional">National/Regional</button>' +
                 '<button id="btn-qr_code">QR Code Support</button>';
+
+            // Disable scroll propagation
+            L.DomEvent.disableScrollPropagation(div);
+            L.DomEvent.disableClickPropagation(div);
+
             return div;
         };
 
         layerControl.addTo(map);
+
+        // Add checkbox panel for multi-value selection
+        var checkboxPanel = L.control({position: 'topleft'});
+
+        checkboxPanel.onAdd = function (map) {
+            var div = L.DomUtil.create('div', 'checkbox-panel');
+            div.innerHTML = '<h4>Filter by Values</h4><div id="checkbox-sections"></div>' +
+                '<div class="checkbox-panel-controls">' +
+                '<button id="btn-clear-all">Clear All</button>' +
+                '</div>';
+
+            // Disable scroll propagation to prevent map zoom when scrolling the panel
+            L.DomEvent.disableScrollPropagation(div);
+            L.DomEvent.disableClickPropagation(div);
+
+            return div;
+        };
+
+        checkboxPanel.addTo(map);
+
+        // Function to populate checkbox sections
+        function populateCheckboxes() {
+            var container = document.getElementById('checkbox-sections');
+            container.innerHTML = '';
+
+            var layerOrder = [
+                ['payment_type', 'Payment System Type'],
+                ['operator', 'Operator'],
+                ['status', 'Implementation Status'],
+                ['bank_participation', 'Bank Participation'],
+                ['nonbank_participation', 'Non-Bank Participation'],
+                ['settlement_type', 'Settlement Type'],
+                ['national_regional', 'Scope'],
+                ['qr_code', 'QR Code Based']
+            ];
+
+            layerOrder.forEach(function(layerInfo) {
+                var layerType = layerInfo[0];
+                var layerTitle = layerInfo[1];
+                var legendInfo = layerLegends[layerType];
+                var items = legendInfo[1];
+
+                var sectionDiv = document.createElement('div');
+                sectionDiv.className = 'checkbox-section';
+                sectionDiv.innerHTML = '<div class="checkbox-section-title">' + layerTitle + '</div>';
+
+                items.forEach(function(item) {
+                    var color = item[0];
+                    var label = item[1];
+                    var checkboxId = 'chk-' + layerType + '-' + label.replace(/[^a-zA-Z0-9]/g, '_');
+
+                    var itemDiv = document.createElement('div');
+                    itemDiv.className = 'checkbox-item';
+                    itemDiv.innerHTML =
+                        '<input type="checkbox" id="' + checkboxId + '" data-layer="' + layerType + '" data-value="' + label + '">' +
+                        '<label for="' + checkboxId + '">' +
+                        '<span class="checkbox-color" style="background:' + color + '"></span>' +
+                        '<span>' + label + '</span>' +
+                        '</label>';
+
+                    sectionDiv.appendChild(itemDiv);
+                });
+
+                container.appendChild(sectionDiv);
+            });
+
+            // Add event listeners to all checkboxes
+            var checkboxes = container.querySelectorAll('input[type="checkbox"]');
+            checkboxes.forEach(function(checkbox) {
+                checkbox.addEventListener('change', function() {
+                    var layerType = this.getAttribute('data-layer');
+                    var value = this.getAttribute('data-value');
+
+                    if (!checkedValues[layerType]) {
+                        checkedValues[layerType] = {};
+                    }
+
+                    if (this.checked) {
+                        checkedValues[layerType][value] = true;
+                    } else {
+                        delete checkedValues[layerType][value];
+                        if (Object.keys(checkedValues[layerType]).length === 0) {
+                            delete checkedValues[layerType];
+                        }
+                    }
+
+                    updateMap();
+                });
+            });
+        }
 
         // Add legend
         var legend = L.control({position: 'bottomright'});
@@ -179,22 +395,55 @@
         legend.onAdd = function (map) {
             legendDiv = L.DomUtil.create('div', 'legend');
             updateLegend();
+
+            // Disable scroll propagation
+            L.DomEvent.disableScrollPropagation(legendDiv);
+            L.DomEvent.disableClickPropagation(legendDiv);
+
             return legendDiv;
         };
 
         function updateLegend() {
             if (!legendDiv) return;
 
-            var legendInfo = layerLegends[currentLayer];
-            var title = legendInfo[0];
-            var items = legendInfo[1];
-
-            legendDiv.innerHTML = '<h4>' + title + '</h4>';
-            items.forEach(function(item) {
-                legendDiv.innerHTML += '<div class="legend-item">' +
-                    '<span class="legend-color" style="background:' + item[0] + '"></span>' +
-                    '<span>' + item[1] + '</span></div>';
+            // Check if any values are checked
+            var hasCheckedValues = Object.keys(checkedValues).some(function(key) {
+                return Object.keys(checkedValues[key]).length > 0;
             });
+
+            if (hasCheckedValues) {
+                // Show legend for all checked values
+                legendDiv.innerHTML = '<h4>Selected Filters</h4>';
+
+                Object.keys(checkedValues).forEach(function(layerType) {
+                    var legendInfo = layerLegends[layerType];
+                    var allItems = legendInfo[1];
+
+                    Object.keys(checkedValues[layerType]).forEach(function(value) {
+                        if (checkedValues[layerType][value]) {
+                            // Find the color for this value
+                            var item = allItems.find(function(i) { return i[1] === value; });
+                            if (item) {
+                                legendDiv.innerHTML += '<div class="legend-item">' +
+                                    '<span class="legend-color" style="background:' + item[0] + '"></span>' +
+                                    '<span>' + value + '</span></div>';
+                            }
+                        }
+                    });
+                });
+            } else {
+                // Show legend for current layer
+                var legendInfo = layerLegends[currentLayer];
+                var title = legendInfo[0];
+                var items = legendInfo[1];
+
+                legendDiv.innerHTML = '<h4>' + title + '</h4>';
+                items.forEach(function(item) {
+                    legendDiv.innerHTML += '<div class="legend-item">' +
+                        '<span class="legend-color" style="background:' + item[0] + '"></span>' +
+                        '<span>' + item[1] + '</span></div>';
+                });
+            }
         }
 
         legend.addTo(map);
@@ -225,13 +474,33 @@
             });
         }, 100);
 
+        // Initialize checkbox panel
+        setTimeout(function() {
+            populateCheckboxes();
+
+            // Clear all checkboxes button
+            document.getElementById('btn-clear-all').addEventListener('click', function() {
+                checkedValues = {};
+                var checkboxes = document.querySelectorAll('#checkbox-sections input[type="checkbox"]');
+                checkboxes.forEach(function(cb) {
+                    cb.checked = false;
+                });
+                updateMap();
+            });
+        }, 150);
+
         // Add info box
         var info = L.control({position: 'topleft'});
 
         info.onAdd = function (map) {
             this._div = L.DomUtil.create('div', 'info');
             this._div.innerHTML = '<h4>Real-Time Payment Systems (Implemented)</h4>' +
-                '<p>Click markers for details. Switch layers to explore different attributes.</p>';
+                '<p>Click markers for details. Use checkboxes to select and combine multiple values across different layers.</p>';
+
+            // Disable scroll propagation
+            L.DomEvent.disableScrollPropagation(this._div);
+            L.DomEvent.disableClickPropagation(this._div);
+
             return this._div;
         };
 
