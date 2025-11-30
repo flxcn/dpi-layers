@@ -177,6 +177,35 @@
         .checkbox-panel-controls button:hover {
             background: #e9ecef;
         }
+        .logic-toggle {
+            display: flex;
+            gap: 4px;
+            margin-bottom: 6px;
+            padding-bottom: 6px;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        .logic-toggle button {
+            flex: 1;
+            padding: 4px 6px;
+            font-size: 10px;
+            border: 1px solid #ccc;
+            background: #f8f9fa;
+            cursor: pointer;
+            border-radius: 3px;
+            font-weight: normal;
+        }
+        .logic-toggle button.active {
+            background: #007bff;
+            color: white;
+            border-color: #007bff;
+            font-weight: 600;
+        }
+        .logic-toggle button:hover {
+            background: #e9ecef;
+        }
+        .logic-toggle button.active:hover {
+            background: #0056b3;
+        }
     </style>
 </head>
 <body>
@@ -210,6 +239,7 @@
 
         // State for checkbox selections
         var checkedValues = {};
+        var filterLogic = 'AND'; // 'OR' or 'AND'
 
         // Function to update map with current layer or checked values
         function updateMap() {
@@ -221,36 +251,93 @@
             });
 
             if (hasCheckedValues) {
-                // Show markers for all checked values across all layers
-                var displayedCountries = {}; // Track countries to avoid duplicates
+                if (filterLogic === 'OR') {
+                    // OR logic: Show markers for all checked values across all layers
+                    var displayedCountries = {}; // Track countries to avoid duplicates
 
-                Object.keys(checkedValues).forEach(function(layerType) {
-                    Object.keys(checkedValues[layerType]).forEach(function(value) {
-                        if (checkedValues[layerType][value]) {
-                            var markers = layersData[layerType];
-                            markers.forEach(function(marker) {
-                                // Only add if this country hasn't been added yet or has multiple systems
-                                var countryKey = marker.country + '-' + layerType + '-' + marker.value;
-                                if (marker.value === value && !displayedCountries[countryKey]) {
-                                    displayedCountries[countryKey] = true;
-                                    var coords = countryCoords[marker.country];
-                                    if (coords) {
-                                        var circle = L.circleMarker([coords[0], coords[1]], {
-                                            radius: 6 + (marker.system_count > 1 ? 2 : 0),
-                                            fillColor: marker.color,
-                                            color: '#000',
-                                            weight: 1,
-                                            opacity: 1,
-                                            fillOpacity: 0.8
-                                        });
-                                        circle.bindPopup(marker.popup);
-                                        currentMarkers.addLayer(circle);
+                    Object.keys(checkedValues).forEach(function(layerType) {
+                        Object.keys(checkedValues[layerType]).forEach(function(value) {
+                            if (checkedValues[layerType][value]) {
+                                var markers = layersData[layerType];
+                                markers.forEach(function(marker) {
+                                    var countryKey = marker.country + '-' + layerType + '-' + marker.value;
+                                    if (marker.value === value && !displayedCountries[countryKey]) {
+                                        displayedCountries[countryKey] = true;
+                                        var coords = countryCoords[marker.country];
+                                        if (coords) {
+                                            var circle = L.circleMarker([coords[0], coords[1]], {
+                                                radius: 6 + (marker.system_count > 1 ? 2 : 0),
+                                                fillColor: marker.color,
+                                                color: '#000',
+                                                weight: 1,
+                                                opacity: 1,
+                                                fillOpacity: 0.8
+                                            });
+                                            circle.bindPopup(marker.popup);
+                                            currentMarkers.addLayer(circle);
+                                        }
                                     }
+                                });
+                            }
+                        });
+                    });
+                } else {
+                    // AND logic: Show countries that match at least one value from EACH layer that has selections
+                    var layersWithSelections = Object.keys(checkedValues);
+
+                    // Build a map of countries and which layers they match
+                    var countryMatches = {};
+
+                    layersWithSelections.forEach(function(layerType) {
+                        var markers = layersData[layerType];
+                        markers.forEach(function(marker) {
+                            var selectedValues = Object.keys(checkedValues[layerType]);
+                            if (selectedValues.indexOf(marker.value) !== -1) {
+                                if (!countryMatches[marker.country]) {
+                                    countryMatches[marker.country] = {
+                                        layers: {},
+                                        markerData: {}
+                                    };
                                 }
-                            });
+                                countryMatches[marker.country].layers[layerType] = true;
+                                // Store marker data for this layer (use first matching)
+                                if (!countryMatches[marker.country].markerData[layerType]) {
+                                    countryMatches[marker.country].markerData[layerType] = marker;
+                                }
+                            }
+                        });
+                    });
+
+                    // Only show countries that match ALL layers with selections
+                    var displayedCountries = {};
+                    Object.keys(countryMatches).forEach(function(country) {
+                        var matchedLayers = Object.keys(countryMatches[country].layers).length;
+                        if (matchedLayers === layersWithSelections.length) {
+                            // This country matches all required layers
+                            // Display using the first layer's marker data
+                            var firstLayer = layersWithSelections[0];
+                            var marker = countryMatches[country].markerData[firstLayer];
+
+                            var countryKey = country;
+                            if (!displayedCountries[countryKey]) {
+                                displayedCountries[countryKey] = true;
+                                var coords = countryCoords[country];
+                                if (coords) {
+                                    var circle = L.circleMarker([coords[0], coords[1]], {
+                                        radius: 6 + (marker.system_count > 1 ? 2 : 0),
+                                        fillColor: marker.color,
+                                        color: '#000',
+                                        weight: 1,
+                                        opacity: 1,
+                                        fillOpacity: 0.8
+                                    });
+                                    circle.bindPopup(marker.popup);
+                                    currentMarkers.addLayer(circle);
+                                }
+                            }
                         }
                     });
-                });
+                }
             } else {
                 // Fall back to showing current layer
                 var markers = layersData[currentLayer];
@@ -303,7 +390,12 @@
 
         checkboxPanel.onAdd = function (map) {
             var div = L.DomUtil.create('div', 'checkbox-panel');
-            div.innerHTML = '<h4>Filter by Values</h4><div id="checkbox-sections"></div>' +
+            div.innerHTML = '<h4>Filter by Values</h4>' +
+                '<div class="logic-toggle">' +
+                '<button id="btn-logic-and" class="active">AND</button>' +
+                '<button id="btn-logic-or">OR</button>' +
+                '</div>' +
+                '<div id="checkbox-sections"></div>' +
                 '<div class="checkbox-panel-controls">' +
                 '<button id="btn-clear-all">Clear All</button>' +
                 '</div>';
@@ -412,8 +504,8 @@
             });
 
             if (hasCheckedValues) {
-                // Show legend for all checked values
-                legendDiv.innerHTML = '<h4>Selected Filters</h4>';
+                // Show legend for all checked values with logic mode
+                legendDiv.innerHTML = '<h4>Selected Filters (' + filterLogic + ')</h4>';
 
                 Object.keys(checkedValues).forEach(function(layerType) {
                     var legendInfo = layerLegends[layerType];
@@ -477,6 +569,25 @@
         // Initialize checkbox panel
         setTimeout(function() {
             populateCheckboxes();
+
+            // Logic toggle buttons
+            document.getElementById('btn-logic-or').addEventListener('click', function() {
+                if (filterLogic !== 'OR') {
+                    filterLogic = 'OR';
+                    document.getElementById('btn-logic-or').classList.add('active');
+                    document.getElementById('btn-logic-and').classList.remove('active');
+                    updateMap();
+                }
+            });
+
+            document.getElementById('btn-logic-and').addEventListener('click', function() {
+                if (filterLogic !== 'AND') {
+                    filterLogic = 'AND';
+                    document.getElementById('btn-logic-and').classList.add('active');
+                    document.getElementById('btn-logic-or').classList.remove('active');
+                    updateMap();
+                }
+            });
 
             // Clear all checkboxes button
             document.getElementById('btn-clear-all').addEventListener('click', function() {
