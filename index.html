@@ -206,10 +206,28 @@
         .logic-toggle button.active:hover {
             background: #0056b3;
         }
+        .citation {
+            text-align: center;
+            padding: 10px;
+            background: #f8f9fa;
+            border-top: 1px solid #dee2e6;
+            font-size: 12px;
+            color: #6c757d;
+        }
+        .citation a {
+            color: #007bff;
+            text-decoration: none;
+        }
+        .citation a:hover {
+            text-decoration: underline;
+        }
     </style>
 </head>
 <body>
     <div id="map"></div>
+    <div class="citation">
+        Data source: <a href="https://dpimap.org/" target="_blank" rel="noopener noreferrer">DPI Map</a>
+    </div>
 
     <!-- Leaflet JS -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
